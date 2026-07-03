@@ -1,57 +1,62 @@
-English | [简体中文](./README_cn.md)
+[English](./README.md) | [简体中文](./README_cn.md)
 
 # speech_agent_tts
 
-**speech_agent_tts** provides text-to-speech playback functionality. The node subscribes to text messages, calls the TTS SDK (`libtts_sdk.so`) to synthesize text into PCM audio data, then plays it back through an 8-channel ALSA device.
-
-## Architecture
-
-The node uses a dual-thread model:
-
-- **ProcessMessages thread**: Subscribes to `/tts_text` via ROS2, splits the text by punctuation and whitespace, then calls `sa_tts_synthesize` segment by segment for speech synthesis.
-- **PlaybackMessages thread**: Receives synthesized PCM data, duplicates each mono sample across all 8 channels into interleaved format, and writes to the sound card via ALSA.
-
-TTS SDK initialization (`sa_init`) and dynamic library loading (`libtts_sdk.so`) are encapsulated by `speech_agent_tts_init` / `speech_agent_tts_deinit` from the `speech_agent_bootstrap` package, with embedded credentials — callers don't need to manage them.
+**speech_agent_tts** provides text-to-speech synthesis and audio playback functionality. It subscribes to text messages on the `/tts_text` topic, synthesizes the text into audio data, and plays it back through the ALSA interface.
 
 ## Environment Setup
 
-Before running speech_agent_tts, verify the audio device is correctly configured:
+Before running speech_agent_tts, verify that the audio device is properly configured. Use the following commands:
+
+### 1. Check Audio Card Installation
+
+```bash
+cat /proc/asound/cards
+# Expected output example
+0 [duplexaudioi2s1]: simple-card - duplex-audio-i2s1
+                      duplex-audio-i2s1
+1 [duplexaudio    ]: simple-card - duplex-audio
+                      duplex-audio
+```
+
+### 2. Check Capture and Playback Nodes
 
 ```bash
 ls /dev/snd/
-# Expected output example: by-path  controlC0  pcmC0D0c  pcmC0D0p  timer
+# Expected output example: by-path  controlC0  controlC1  pcmC0D0p  pcmC0D1c pcmC1D0c pcmC1D0p timer
 ```
 
-If a playback device like `pcmC0D0p` appears, the setup is correct. Refer to the RDK User Manual for detailed setup instructions.
+As shown above, the audio card is correctly installed. Card 0 is the audio card, `pcmC0D1c` is the capture node, and `pcmC0D0p` is the playback node. Refer to the RDK user manual for detailed configuration instructions.
 
 ## How to Run
 
-### 1. DownLoad the resource pack
+### 1. Build
+
+The resource package is downloaded automatically during the build. To download it manually, run the following command to place the resource package in the project root directory before building:
 
 ```bash
 wget https://archive.d-robotics.cc/TogetheROS/files/speech_solution/speech_agent_tts/speech_agent_tts_v1.0.0.tar.gz
-tar -zxvf speech_agent_tts_v1.0.0.tar.gz -C /opt/tros/humble/lib/
 ```
 
-### 2. Build
+- Build:
 
 ```bash
 source /opt/tros/humble/setup.bash
 colcon build --packages-select speech_agent_tts
 ```
 
-### 3. Launch
+### 2. Launch
 
 ```bash
 ros2 launch speech_agent_tts speech_agent_tts.launch.py playback_device:=plughw:0,0 topic_sub:=/tts_text
 ```
 
-Once running, the node subscribes to the `/tts_text` topic (message type: `std_msgs/msg/String`) and converts text to speech.
+After a successful launch, the node subscribes to the `/tts_text` topic (message type: `std_msgs/msg/String`) and synthesizes the text into speech for playback.
 
-### 4. Test playback
+### 3. Playback Test
 
 ```bash
-ros2 topic pub --once /tts_text std_msgs/msg/String "{data: 'hello world'}"
+ros2 topic pub --once /tts_text std_msgs/msg/String "{data: 'Hello, world'}"
 ```
 
 ## Parameters
@@ -63,21 +68,21 @@ ros2 topic pub --once /tts_text std_msgs/msg/String "{data: 'hello world'}"
 
 ## Key Technical Details
 
-### Audio Playback Configuration
+### Audio Playback Parameters
 
 | Parameter | Value |
 | --------- | ----- |
-| Sample rate | 16000 Hz |
-| Sample format | S16_LE (16-bit signed little-endian) |
+| Sample Rate | 16000 Hz |
+| Sample Format | S16_LE (16-bit signed little-endian) |
 | Channels | 8 |
-| Period size | 1024 frames |
-| Number of periods | 8 |
-| Buffer strategy | Default buffer time |
+| Period Size | 1024 frames |
+| Period Count | 8 |
+| Buffer Strategy | Default buffer time |
 
 ### TTS Synthesis
 
-- The synthesis engine outputs mono 16-bit PCM, delivered to the playback queue via the `TtsDataCallback` callback
-- During playback, each mono sample is duplicated to all 8 channels to form 8-channel interleaved PCM data
+- The synthesis engine outputs mono 16-bit PCM, which is fed into the playback queue via the `TtsDataCallback` callback function
+- During playback, each sample is replicated across all 8 channels to form 8-channel interleaved PCM data
 
 ### Dependencies
 
@@ -89,3 +94,16 @@ speech_agent_tts
   ├── libasound  (ALSA)
   └── libdl
 ```
+
+## FAQ
+
+### 1. Unable to Open Audio Device
+
+- Verify that the audio device is properly connected
+- Verify that the audio device is correctly configured
+- Verify that the playback node is correctly set
+
+### 2. Abnormal Playback Sound
+
+- Check that the cable connections are secure
+- Verify that the speaker connections are secure

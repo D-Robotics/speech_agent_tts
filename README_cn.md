@@ -2,45 +2,50 @@
 
 # speech_agent_tts
 
-**speech_agent_tts** 提供将文本转化为语音播放的功能。节点订阅文本消息，调用 TTS SDK（`libtts_sdk.so`）将文本合成为 PCM 音频数据，然后通过 ALSA 接口进行8通道播放。
-
-## 架构设计
-
-节点采用双线程模型：
-
-- **ProcessMessages 线程**：从 ROS2 订阅 `/tts_text` 获取文本，按标点符号和空格分词后，逐段调用 `sa_tts_synthesize` 进行语音合成。
-- **PlaybackMessages 线程**：接收合成后的 PCM 数据，将单声道数据复制为8通道交错格式，通过 ALSA 写入声卡播放。
-
-TTS SDK 的初始化（`sa_init`）和动态库加载（`libtts_sdk.so`）由 `speech_agent_bootstrap` 包中的 `speech_agent_tts_init` / `speech_agent_tts_deinit` 封装，内置鉴权凭证，调用方无需关心。
+**speech_agent_tts** 提供将文本转化为语音并播放的功能, 节点订阅/tts_text文本消息，并将文本合成为音频数据，然后通过ALSA接口进行播放。
 
 ## 环境搭建
 
 运行 speech_agent_tts 前，需要确认音频设备设置正确。可使用如下命令检查：
 
+### 1. 查看音频板是否安装成功
+
 ```bash
-ls /dev/snd/
-# 预期输出示例: by-path  controlC0  pcmC0D0c  pcmC0D0p  timer
+cat /proc/asound/cards
+# 预期输出示例
+0 [duplexaudioi2s1]: simple-card - duplex-audio-i2s1
+                      duplex-audio-i2s1
+1 [duplexaudio    ]: simple-card - duplex-audio
+                      duplex-audio
 ```
 
-如果出现 `pcmC0D0p`（播放设备）则表示设置正确。具体设置方法参考 RDK 用户手册。
+### 2. 查看录音和播放节点
+
+```bash
+ls /dev/snd/
+# 预期输出示例: by-path  controlC0  controlC1  pcmC0D0p  pcmC0D1c pcmC1D0c pcmC1D0p timer
+```
+
+如上所示，表示音频板安装正确，0表示音频板，pcmC0D1c是播放节点，pcmC0D0p是录音节点，具体设置方法参考 RDK 用户手册。
 
 ## 运行方式
 
-### 1. 下载资源包
+### 1. 编译
+
+编译时会自动下载资源包，如果想手动下载资源包，可以使用下面命令将资源包下载到项目根目录，再进行编译
 
 ```bash
 wget https://archive.d-robotics.cc/TogetheROS/files/speech_solution/speech_agent_tts/speech_agent_tts_v1.0.0.tar.gz
-tar -zxvf speech_agent_tts_v1.0.0.tar.gz -C /opt/tros/humble/lib/
 ```
 
-### 2. 编译
+- 编译
 
 ```bash
 source /opt/tros/humble/setup.bash
 colcon build --packages-select speech_agent_tts
 ```
 
-### 3. 启动
+### 2. 启动
 
 ```bash
 ros2 launch speech_agent_tts speech_agent_tts.launch.py playback_device:=plughw:0,0 topic_sub:=/tts_text
@@ -48,7 +53,7 @@ ros2 launch speech_agent_tts speech_agent_tts.launch.py playback_device:=plughw:
 
 运行成功后，节点订阅 topic `/tts_text`（消息类型为 `std_msgs/msg/String`），将文本转化为语音信号播放。
 
-### 4. 测试播放
+### 3. 播放测试
 
 ```bash
 ros2 topic pub --once /tts_text std_msgs/msg/String "{data: '你好,世界'}"
@@ -89,3 +94,16 @@ speech_agent_tts
   ├── libasound  (ALSA)
   └── libdl
 ```
+
+## 常见问题
+
+### 1. 无法打开音频设备
+
+- 确认音频设备连接是否正常
+- 确认是否正确配置音频设备
+- 确认是否正确设置播放节点
+
+### 2. 播放声音异常
+
+- 确认排线是否正常
+- 确认喇叭连接是否正常
