@@ -69,6 +69,7 @@ target_link_libraries(speech_agent_tts
 
 set(TAR_FILE "${CMAKE_SOURCE_DIR}/speech_agent_tts_v1.0.0.tar.gz")
 set(EXTRACT_DIR "${CMAKE_INSTALL_PREFIX}/lib/")
+file(MAKE_DIRECTORY ${EXTRACT_DIR})
 if (NOT EXISTS "${CMAKE_SOURCE_DIR}/speech_agent_tts_v1.0.0.tar.gz")
   execute_process(
     COMMAND wget https://archive.d-robotics.cc/TogetheROS/files/speech_solution/speech_agent_tts/speech_agent_tts_v1.0.0.tar.gz
@@ -80,7 +81,9 @@ if (NOT EXISTS "${CMAKE_SOURCE_DIR}/speech_agent_tts_v1.0.0.tar.gz")
   if(NOT wget_result EQUAL 0)
     message(FATAL_ERROR "Download failed: ${wget_error}")
   endif()
+endif()
 
+if (NOT IS_DIRECTORY "${EXTRACT_DIR}/speech_agent_tts")
   execute_process(
     COMMAND tar -zxvf ${TAR_FILE} -C ${EXTRACT_DIR}
     ERROR_VARIABLE tar_error
