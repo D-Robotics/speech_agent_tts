@@ -15,36 +15,9 @@
 #include "utils/alsa_device.h"
 
 #include <stdio.h>
-#include <sys/time.h>
+#include <time.h>
 
 #include "utils/utils.h"
-
-/*
- * Definitions
- */
-#ifndef timersub
-#define timersub(a, b, result)                       \
-  do {                                               \
-    (result)->tv_sec = (a)->tv_sec - (b)->tv_sec;    \
-    (result)->tv_usec = (a)->tv_usec - (b)->tv_usec; \
-    if ((result)->tv_usec < 0) {                     \
-      --(result)->tv_sec;                            \
-      (result)->tv_usec += 1000000;                  \
-    }                                                \
-  } while (0)
-#endif
-
-#ifndef timermsub
-#define timermsub(a, b, result)                      \
-  do {                                               \
-    (result)->tv_sec = (a)->tv_sec - (b)->tv_sec;    \
-    (result)->tv_nsec = (a)->tv_nsec - (b)->tv_nsec; \
-    if ((result)->tv_nsec < 0) {                     \
-      --(result)->tv_sec;                            \
-      (result)->tv_nsec += 1000000000L;              \
-    }                                                \
-  } while (0)
-#endif
 
 /*
  * static variables
@@ -57,48 +30,59 @@ static int dump_hw_params = 0;
  */
 static void xrun(snd_pcm_t *handle, int stream) {
   snd_pcm_status_t *status;
-  int res;
 
   snd_pcm_status_alloca(&status);
-  if ((res = snd_pcm_status(handle, status)) < 0) {
-    fprintf(stderr, "status error: %s\n", snd_strerror(res));
+  int err = snd_pcm_status(handle, status);
+  if (err < 0) {
+    fprintf(stderr, "status error: %s\n", snd_strerror(err));
     return;
   }
 
-  if (snd_pcm_status_get_state(status) == SND_PCM_STATE_XRUN) {
-    struct timeval now, diff, tstamp;
-    gettimeofday(&now, 0);
-    snd_pcm_status_get_trigger_tstamp(status, &tstamp);
-    timersub(&now, &tstamp, &diff);
-    fprintf(stderr, "%s!!! (at least %.3f ms long)\n",
+  snd_pcm_state_t state = snd_pcm_status_get_state(status);
+
+  switch (state) {
+    case SND_PCM_STATE_XRUN: {
+      struct timespec now, trigger_ts;
+      double elapsed_ms;
+
+      clock_gettime(CLOCK_REALTIME, &now);
+      snd_pcm_status_get_trigger_htstamp(status, &trigger_ts);
+      elapsed_ms = (now.tv_sec - trigger_ts.tv_sec) * 1000.0 +
+                   (now.tv_nsec - trigger_ts.tv_nsec) / 1000000.0;
+      if (elapsed_ms < 0.0) elapsed_ms = 0.0;
+
+      fprintf(stderr, "%s!!! (at least %.3f ms long)\n",
             stream == SND_PCM_STREAM_PLAYBACK ? "underrun" : "overrun",
-            diff.tv_sec * 1000 + diff.tv_usec / 1000.0);
-    fprintf(stderr, "Status:\n");
-
-    if (dump_hw_params) snd_pcm_status_dump(status, log);
-    if ((res = snd_pcm_prepare(handle)) < 0) {
-      fprintf(stderr, "xrun: prepare error: %s", snd_strerror(res));
-      return;
-    }
-    return; /* ok, data should be accepted again */
-  }
-  if (snd_pcm_status_get_state(status) == SND_PCM_STATE_DRAINING) {
-    fprintf(stderr, "Status(DRAINING):\n");
-    if (dump_hw_params) snd_pcm_status_dump(status, log);
-    if (stream == SND_PCM_STREAM_CAPTURE) {
-      fprintf(stderr, "capture stream format change? attempting recover...\n");
-      if ((res = snd_pcm_prepare(handle)) < 0) {
-        fprintf(stderr, "xrun(DRAINING): prepare error: %s", snd_strerror(res));
-        return;
+            elapsed_ms);
+      fprintf(stderr, "Status:\n");
+      if (dump_hw_params) snd_pcm_status_dump(status, log);
+      err = snd_pcm_prepare(handle);
+      if (err < 0) {
+        fprintf(stderr, "xrun: prepare error: %s\n", snd_strerror(err));
       }
-      return;
+      break;
     }
-  }
 
-  fprintf(stderr, "Status(R/W):\n");
-  if (dump_hw_params) snd_pcm_status_dump(status, log);
-  fprintf(stderr, "read/write error, state = %s\n",
-          snd_pcm_state_name(snd_pcm_status_get_state(status)));
+    case SND_PCM_STATE_DRAINING:
+      fprintf(stderr, "Status(DRAINING):\n");
+      if (dump_hw_params) snd_pcm_status_dump(status, log);
+      if (stream == SND_PCM_STREAM_CAPTURE) {
+        fprintf(stderr, "capture stream format change? attempting recover...\n");
+        err = snd_pcm_prepare(handle);
+        if (err < 0) {
+          fprintf(stderr, "xrun(DRAINING): prepare error: %s\n", snd_strerror(err));
+        }
+        break;
+      }
+      /* for playback stream, fall through to print status and state */
+
+    default:
+      fprintf(stderr, "Status(R/W):\n");
+      if (dump_hw_params) snd_pcm_status_dump(status, log);
+      fprintf(stderr, "read/write error, state = %s\n",
+              snd_pcm_state_name(state));
+      break;
+  }
 }
 
 void alsa_device_debug_enable(int enable) {
@@ -145,40 +129,13 @@ alsa_device_t *alsa_device_allocate(void) {
   return adev;
 }
 
-static int set_hwparams(alsa_device_t *adev, snd_pcm_hw_params_t *params,
-                        snd_pcm_access_t access) {
+static int setup_pcm_params(alsa_device_t *adev, snd_pcm_hw_params_t *params,
+                            snd_pcm_access_t access) {
   unsigned int rrate;
   int err;
-  snd_pcm_uframes_t period_size_min;
-  snd_pcm_uframes_t period_size_max;
-  snd_pcm_uframes_t buffer_size_min;
-  snd_pcm_uframes_t buffer_size_max;
-
-  trace_in();
-
-  if (!adev || !adev->handle) return -EINVAL;
-
-  snd_pcm_t *handle = adev->handle;
-
-  /* choose all parameters */
-  err = snd_pcm_hw_params_any(handle, params);
-  if (err < 0) {
-    fprintf(
-        stderr,
-        "Broken configuration for playback: no configurations available: %s\n",
-        snd_strerror(err));
-    return err;
-  }
-
-  if (dump_hw_params) {
-    fprintf(stderr, "HW Params of device \"%s\":\n", snd_pcm_name(handle));
-    fprintf(stderr, "--------------------\n");
-    snd_pcm_hw_params_dump(params, log);
-    fprintf(stderr, "--------------------\n");
-  }
 
   /* set the interleaved read/write format */
-  err = snd_pcm_hw_params_set_access(handle, params, access);
+  err = snd_pcm_hw_params_set_access(adev->handle, params, access);
   if (err < 0) {
     fprintf(stderr, "Access type not available for playback: %s\n",
             snd_strerror(err));
@@ -186,7 +143,7 @@ static int set_hwparams(alsa_device_t *adev, snd_pcm_hw_params_t *params,
   }
 
   /* set the sample format */
-  err = snd_pcm_hw_params_set_format(handle, params, adev->format);
+  err = snd_pcm_hw_params_set_format(adev->handle, params, adev->format);
   if (err < 0) {
     fprintf(stderr, "Sample format not available for playback: %s\n",
             snd_strerror(err));
@@ -194,7 +151,7 @@ static int set_hwparams(alsa_device_t *adev, snd_pcm_hw_params_t *params,
   }
 
   /* set the count of channels */
-  err = snd_pcm_hw_params_set_channels(handle, params, adev->channels);
+  err = snd_pcm_hw_params_set_channels(adev->handle, params, adev->channels);
   if (err < 0) {
     fprintf(stderr, "Channels count (%i) not available for playbacks: %s\n",
             adev->channels, snd_strerror(err));
@@ -203,14 +160,12 @@ static int set_hwparams(alsa_device_t *adev, snd_pcm_hw_params_t *params,
 
   /* set the stream rate */
   rrate = adev->rate;
-  err = snd_pcm_hw_params_set_rate(handle, params, adev->rate, 0);
-  //err = snd_pcm_hw_params_set_rate_near(handle, params, &adev->rate, (int *)&adev->direct);
+  err = snd_pcm_hw_params_set_rate(adev->handle, params, adev->rate, 0);
   if (err < 0) {
     fprintf(stderr, "Rate %iHz not available for playback: %s\n", adev->rate,
             snd_strerror(err));
     return err;
   }
-
   if (rrate != adev->rate) {
     fprintf(stderr, "Rate doesn't match (requested %iHz, get %iHz, err %d)\n",
             adev->rate, rrate, err);
@@ -218,45 +173,50 @@ static int set_hwparams(alsa_device_t *adev, snd_pcm_hw_params_t *params,
   }
   printf("Rate set to %iHz (requested %iHz)\n", rrate, adev->rate);
 
-  /* set the buffer time */
+  return 0;
+}
+
+static int setup_buffer_params(alsa_device_t *adev, snd_pcm_hw_params_t *params) {
+  snd_pcm_uframes_t period_size_min, period_size_max;
+  snd_pcm_uframes_t buffer_size_min, buffer_size_max;
+  int err;
+
   err = snd_pcm_hw_params_get_buffer_size_min(params, &buffer_size_min);
   err = snd_pcm_hw_params_get_buffer_size_max(params, &buffer_size_max);
   err = snd_pcm_hw_params_get_period_size_min(params, &period_size_min, NULL);
   err = snd_pcm_hw_params_get_period_size_max(params, &period_size_max, NULL);
-  printf("Buffer size range from %lu to %lu\n", buffer_size_min,
-         buffer_size_max);
-  printf("Period size range from %lu to %lu\n", period_size_min,
-         period_size_max);
+  printf("hw params: buffer_size [%lu, %lu], period_size [%lu, %lu]\n",
+         buffer_size_min, buffer_size_max, period_size_min, period_size_max);
 
   if (adev->period_size > 0) {
     printf("Requested period size %lu frames\n", adev->period_size);
-    err = snd_pcm_hw_params_set_period_size_near(handle, params,
+    err = snd_pcm_hw_params_set_period_size_near(adev->handle, params,
                                                  &adev->period_size, NULL);
     if (err < 0) {
-      fprintf(stderr, "Unable to set period size %lu frames for playback: %s\n",
+      fprintf(stderr, "Failed to set period size %lu frames for playback: %s\n",
               adev->period_size, snd_strerror(err));
-      return err;
-    }
-  }
-
-  if (adev->period_time > 0) {
-    printf("Requested period time %u us\n", adev->period_time);
-    err = snd_pcm_hw_params_set_period_time_near(handle, params,
-                                                 &adev->period_time, NULL);
-    if (err < 0) {
-      fprintf(stderr, "Unable to set period time %u us for playback: %s\n",
-              adev->period_time, snd_strerror(err));
       return err;
     }
   }
 
   if (adev->buffer_time > 0) {
     printf("Requested buffer time %u us\n", adev->buffer_time);
-    err = snd_pcm_hw_params_set_buffer_time_near(handle, params,
+    err = snd_pcm_hw_params_set_buffer_time_near(adev->handle, params,
                                                  &adev->buffer_time, NULL);
     if (err < 0) {
-      fprintf(stderr, "Unable to set buffer time %u us for playback: %s\n",
+      fprintf(stderr, "Failed to set buffer time %u us for playback: %s\n",
               adev->buffer_time, snd_strerror(err));
+      return err;
+    }
+  }
+
+  if (adev->period_time > 0) {
+    printf("Requested period time %u us\n", adev->period_time);
+    err = snd_pcm_hw_params_set_period_time_near(adev->handle, params,
+                                                 &adev->period_time, NULL);
+    if (err < 0) {
+      fprintf(stderr, "Failed to set period time %u us for playback: %s\n",
+              adev->period_time, snd_strerror(err));
       return err;
     }
   }
@@ -264,13 +224,12 @@ static int set_hwparams(alsa_device_t *adev, snd_pcm_hw_params_t *params,
   if (!adev->buffer_time && !adev->period_time && !adev->period_size) {
     adev->buffer_size = buffer_size_max;
     if (!adev->period_time)
-      adev->buffer_size = (adev->buffer_size / adev->nperiods) * adev->nperiods;
-    printf("Using max buffer size %lu\n", adev->buffer_size);
-
-    err = snd_pcm_hw_params_set_buffer_size_near(handle, params,
+      adev->buffer_size = adev->buffer_size - (adev->buffer_size % adev->nperiods);
+    printf("Fallback to max buffer size %lu\n", adev->buffer_size);
+    err = snd_pcm_hw_params_set_buffer_size_near(adev->handle, params,
                                                  &adev->buffer_size);
     if (err < 0) {
-      fprintf(stderr, "Unable to set buffer size %lu for playback: %s\n",
+      fprintf(stderr, "Failed to set buffer size %lu for playback: %s\n",
               adev->buffer_size, snd_strerror(err));
       return err;
     }
@@ -278,17 +237,20 @@ static int set_hwparams(alsa_device_t *adev, snd_pcm_hw_params_t *params,
 
   if (!adev->buffer_time || !adev->period_time) {
     printf("Periods = %u\n", adev->nperiods);
-    err = snd_pcm_hw_params_set_periods_near(handle, params, &adev->nperiods,
+    err = snd_pcm_hw_params_set_periods_near(adev->handle, params, &adev->nperiods,
                                              NULL);
     if (err < 0) {
-      fprintf(stderr, "Unable to set nperiods %u for playback: %s\n",
+      fprintf(stderr, "Failed to set nperiods %u for playback: %s\n",
               adev->nperiods, snd_strerror(err));
       return err;
     }
   }
 
-  /* write the parameters to device */
-  err = snd_pcm_hw_params(handle, params);
+  return 0;
+}
+
+static int apply_and_verify_params(alsa_device_t *adev, snd_pcm_hw_params_t *params) {
+  int err = snd_pcm_hw_params(adev->handle, params);
   if (err < 0) {
     fprintf(stderr, "Unable to set hw params for playback: %s\n",
             snd_strerror(err));
@@ -297,7 +259,7 @@ static int set_hwparams(alsa_device_t *adev, snd_pcm_hw_params_t *params,
 
   if (dump_hw_params) {
     fprintf(stderr, "Applied HW Params of device \"%s\":\n",
-            snd_pcm_name(handle));
+            snd_pcm_name(adev->handle));
     fprintf(stderr, "--------------------\n");
     snd_pcm_hw_params_dump(params, log);
     fprintf(stderr, "--------------------\n");
@@ -312,6 +274,41 @@ static int set_hwparams(alsa_device_t *adev, snd_pcm_hw_params_t *params,
     fprintf(stderr, "buffer to small, could not use\n");
     return -EINVAL;
   }
+
+  return 0;
+}
+
+static int set_hwparams(alsa_device_t *adev, snd_pcm_hw_params_t *params,
+                        snd_pcm_access_t access) {
+  int err;
+
+  trace_in();
+
+  if (!adev || !adev->handle) return -EINVAL;
+
+  err = snd_pcm_hw_params_any(adev->handle, params);
+  if (err < 0) {
+    fprintf(stderr,
+            "Broken configuration for playback: no configurations available: %s\n",
+            snd_strerror(err));
+    return err;
+  }
+
+  if (dump_hw_params) {
+    fprintf(stderr, "HW Params of device \"%s\":\n", snd_pcm_name(adev->handle));
+    fprintf(stderr, "--------------------\n");
+    snd_pcm_hw_params_dump(params, log);
+    fprintf(stderr, "--------------------\n");
+  }
+
+  err = setup_pcm_params(adev, params, access);
+  if (err < 0) return err;
+
+  err = setup_buffer_params(adev, params);
+  if (err < 0) return err;
+
+  err = apply_and_verify_params(adev, params);
+  if (err < 0) return err;
 
   trace_out();
 
