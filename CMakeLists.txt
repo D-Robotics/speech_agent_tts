@@ -99,7 +99,7 @@ install(TARGETS
 
 install(DIRECTORY
   speech_agent_tts/
-  DESTINATION lib/${speech_agent_tts})
+  DESTINATION lib/${PROJECT_NAME})
 
 install(PROGRAMS
   ${PROJECT_SOURCE_DIR}/setup_env.sh
