@@ -26,12 +26,28 @@ def generate_launch_description():
     setup_env = os.path.join(pkg_share, 'setup_env.sh')
 
     playback_device = LaunchConfiguration('playback_device')
+    voice_name = LaunchConfiguration('voice_name')
+    speed = LaunchConfiguration('speed')
+    pitch = LaunchConfiguration('pitch')
+    volume = LaunchConfiguration('volume')
     topic_sub = LaunchConfiguration('topic_sub')
 
     return LaunchDescription([
         DeclareLaunchArgument(
             'playback_device', default_value='plughw:0,0',
             description='audio playback device'),
+        DeclareLaunchArgument(
+            'voice_name', default_value='x_yezi_cpu5_10',
+            description='TTS voice name'),
+        DeclareLaunchArgument(
+            'speed', default_value='75',
+            description='TTS speech speed'),
+        DeclareLaunchArgument(
+            'pitch', default_value='80',
+            description='TTS speech pitch'),
+        DeclareLaunchArgument(
+            'volume', default_value='90',
+            description='TTS speech volume'),
         DeclareLaunchArgument(
             'topic_sub', default_value='/tts_text',
             description='tts text subscription topic'),
@@ -40,9 +56,14 @@ def generate_launch_description():
             cmd=['bash', '-c',
                  'source ' + setup_env + ' && '
                  'exec ros2 run speech_agent_tts speech_agent_tts '
-                 '--ros-args -p playback_device:="$1" -p topic_sub:="$2"',
+                 '--ros-args -p playback_device:="$1" -p voice_name:="$2" '
+                 '-p speed:="$3" -p pitch:="$4" -p volume:="$5" -p topic_sub:="$6"',
                  'bash',
                  playback_device,
+                 voice_name,
+                 speed,
+                 pitch,
+                 volume,
                  topic_sub],
             output='screen',
         ),

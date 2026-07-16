@@ -36,13 +36,15 @@ class SpeechAgentTTSNode {
   SpeechAgentTTSNode(rclcpp::Node::SharedPtr& nh);
   ~SpeechAgentTTSNode();
 
-  void OnGetText(const std_msgs::msg::String::SharedPtr msg);
-
  private:
   rclcpp::Node::SharedPtr nh_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr text_subscription_;
   std::string topic_subscription_name_ = "/tts_text";
   std::string playback_device_name_ = "plughw:0,0";
+  std::string voice_name_ = "x_yezi_cpu5_10";
+  int voice_speed_ = 75;
+  int voice_pitch_ = 80;
+  int voice_volume_ = 90;
 
   // 定义与头文件中签名完全一致的函数指针类型
   typedef int (*sa_tts_create_t)(sa_tts_handle*, sa_tts_callback_t, void*);
@@ -53,7 +55,7 @@ class SpeechAgentTTSNode {
 
   static void TtsDataCallback(const void* pcm_data, size_t pcm_len, int is_end, void* user_data);
 
-  void TTSEngineInit();
+  int TTSEngineInit();
 
   void ProcessMessages();
 
@@ -65,7 +67,7 @@ class SpeechAgentTTSNode {
   std::mutex mutex_;
   std::condition_variable cv_;
 
-  std::queue<std::pair<std::unique_ptr<int16_t[]>, int>> playback_queue_;
+  std::queue<std::pair<std::unique_ptr<int16_t[]>, size_t>> playback_queue_;
   std::mutex playback_mutex_;
   std::condition_variable cv_playback_;
 
@@ -76,12 +78,12 @@ class SpeechAgentTTSNode {
   static constexpr size_t kMaxMessageQueueSize = 10;
   static constexpr size_t kMaxPlaybackQueueSize = 1000;
 
-  sa_tts_handle tts_handle_;
-  alsa_device_t* speaker_device_ = nullptr;
+  sa_tts_handle tts_handle_{nullptr};
+  alsa_device_t* speaker_device_{nullptr};
 
-  sa_tts_synthesize_t p_sa_tts_synthesize_ = nullptr;
-  sa_tts_destroy_t p_sa_tts_destroy_ = nullptr;
-  LIB_HANDLE lib_handle_ = nullptr;
+  sa_tts_synthesize_t p_sa_tts_synthesize_{nullptr};
+  sa_tts_destroy_t p_sa_tts_destroy_{nullptr};
+  LIB_HANDLE lib_handle_{nullptr};
 };
 
 }  // namespace speech_agent_tts

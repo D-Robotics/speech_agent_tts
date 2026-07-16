@@ -48,7 +48,7 @@ colcon build --packages-select speech_agent_tts
 ### 2. 启动
 
 ```bash
-ros2 launch speech_agent_tts speech_agent_tts.launch.py playback_device:=plughw:0,0 topic_sub:=/tts_text
+ros2 launch speech_agent_tts speech_agent_tts.launch.py playback_device:=plughw:0,0 volume:=90 topic_sub:=/tts_text
 ```
 
 运行成功后，节点订阅 topic `/tts_text`（消息类型为 `std_msgs/msg/String`），将文本转化为语音信号播放。
@@ -65,6 +65,10 @@ ros2 topic pub --once /tts_text std_msgs/msg/String "{data: '你好,世界'}"
 | ------ | ---- | ---- | ------ |
 | topic_sub | 订阅的文本 topic | std::string | "/tts_text" |
 | playback_device | 语音播放音频设备 | std::string | "plughw:0,0" |
+| voice_name | TTS 音色名称 | std::string | "x_yezi_cpu5_10" |
+| speed | TTS 语音速度 | int | 75 |
+| pitch | TTS 语音音调 | int | 80 |
+| volume | TTS 语音音量 | int | 90 |
 
 ## 关键技术细节
 

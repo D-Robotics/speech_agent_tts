@@ -22,7 +22,16 @@ namespace speech_agent_tts {
 
 SpeechAgentTTSNode::SpeechAgentTTSNode(rclcpp::Node::SharedPtr& nh) : nh_(nh) {
   nh_->declare_parameter<std::string>("playback_device", playback_device_name_);
+  nh_->declare_parameter<std::string>("voice_name", voice_name_);
+  nh_->declare_parameter<int>("speed", voice_speed_);
+  nh_->declare_parameter<int>("pitch", voice_pitch_);
+  nh_->declare_parameter<int>("volume", voice_volume_);
+
   nh_->get_parameter<std::string>("playback_device", playback_device_name_);
+  nh_->get_parameter<std::string>("voice_name", voice_name_);
+  nh_->get_parameter<int>("speed", voice_speed_);
+  nh_->get_parameter<int>("pitch", voice_pitch_);
+  nh_->get_parameter<int>("volume", voice_volume_);
 
   speaker_device_ = alsa_device_allocate();
   if (!speaker_device_) {
@@ -41,15 +50,23 @@ SpeechAgentTTSNode::SpeechAgentTTSNode(rclcpp::Node::SharedPtr& nh) : nh_(nh) {
   auto ret = alsa_device_init(speaker_device_);
   if (ret < 0) {
     if (speaker_device_) {
-      free(speaker_device_);
+      alsa_device_free(speaker_device_);
       speaker_device_ = nullptr;
     }
     RCLCPP_ERROR(nh_->get_logger(), "alsa_device_init speaker failed:%d", ret);
+    return;
   }
   RCLCPP_INFO(nh_->get_logger(), "devices name:%s", speaker_device_->name);
   RCLCPP_INFO(nh_->get_logger(), "alsa_device_init success:%d", ret);
 
-  TTSEngineInit();
+  if (0 != TTSEngineInit()) {
+    if (speaker_device_) {
+      alsa_device_deinit(speaker_device_);
+      alsa_device_free(speaker_device_);
+      speaker_device_ = nullptr;
+    }
+    return;
+  }
 
   nh_->declare_parameter<std::string>("topic_sub", topic_subscription_name_);
   nh_->get_parameter<std::string>("topic_sub", topic_subscription_name_);
@@ -64,14 +81,15 @@ SpeechAgentTTSNode::SpeechAgentTTSNode(rclcpp::Node::SharedPtr& nh) : nh_(nh) {
 
 SpeechAgentTTSNode::~SpeechAgentTTSNode() {
   StopPlayback();
-  // session 级销毁：必须在 speech_agent_tts_deinit 之前
-  if (p_sa_tts_destroy_) {
+  if (p_sa_tts_destroy_ && tts_handle_) {
     p_sa_tts_destroy_(tts_handle_);
+    tts_handle_ = nullptr;
   }
 
-  // SDK 级销毁（替代原来的 sa_destroy + CLOSE_LIBRARY）
-  speech_agent_tts_deinit(lib_handle_);
-  lib_handle_ = nullptr;
+  if (lib_handle_) {
+    speech_agent_tts_deinit(lib_handle_);
+    lib_handle_ = nullptr;
+  }
 
   if (speaker_device_) {
     alsa_device_deinit(speaker_device_);
@@ -80,7 +98,7 @@ SpeechAgentTTSNode::~SpeechAgentTTSNode() {
   }
 }
 
-void SpeechAgentTTSNode::TTSEngineInit() {
+int SpeechAgentTTSNode::TTSEngineInit() {
   std::string tros_distro
       = std::string(std::getenv("TROS_DISTRO")? std::getenv("TROS_DISTRO") : "");
   std::string speech_agent_resource = "/opt/tros/" + tros_distro + "/lib/speech_agent_tts";
@@ -89,7 +107,7 @@ void SpeechAgentTTSNode::TTSEngineInit() {
   lib_handle_ = speech_agent_tts_init(speech_agent_resource.c_str());
   if (!lib_handle_) {
     RCLCPP_ERROR(nh_->get_logger(), "speech_agent_tts_init failed");
-    return;
+    return -1;
   }
   RCLCPP_INFO(nh_->get_logger(), "tts init success");
 
@@ -99,20 +117,17 @@ void SpeechAgentTTSNode::TTSEngineInit() {
   p_sa_tts_destroy_ = (sa_tts_destroy_t)LOAD_SYMBOL(lib_handle_, "sa_tts_destroy");
   if (!p_sa_tts_create || !p_sa_tts_synthesize_ || !p_sa_tts_destroy_) {
     RCLCPP_ERROR(nh_->get_logger(), "load tts symbol failed");
-    return;
+    return -1;
   }
 
   // sa_tts_create 是 session 级操作
   int ret = p_sa_tts_create(&tts_handle_, TtsDataCallback, this);
   if (ret) {
-    if (speaker_device_) {
-      free(speaker_device_);
-      speaker_device_ = nullptr;
-    }
     RCLCPP_ERROR(nh_->get_logger(), "sa_tts_create failed:%d", ret);
+    return -1;
   }
   RCLCPP_INFO(nh_->get_logger(), "sa_tts_create success");
-
+  return 0;
 }
 
 void SpeechAgentTTSNode::MessageCallback(const std_msgs::msg::String::SharedPtr msg) {
@@ -135,7 +150,6 @@ void SpeechAgentTTSNode::TtsDataCallback(const void* pcm_data, size_t pcm_len, i
     // Discard the oldest PCM data if the queue size exceeds the limit
     self->playback_queue_.pop();
   }
-  // RCLCPP_INFO(self->nh_->get_logger(), ">>>> pcm_len size: %zu", pcm_len);
   self->playback_queue_.push(std::make_pair(std::move(pcm_data_int16), pcm_len/sizeof(int16_t)));
   self->cv_playback_.notify_one();
   if (is_end) {
@@ -149,6 +163,13 @@ void SpeechAgentTTSNode::ProcessMessages() {
     return;
   }
 
+  sa_tts_params tts_params;
+  tts_params.vcn = voice_name_.c_str();
+  tts_params.speed = voice_speed_;
+  tts_params.pitch = voice_pitch_;
+  tts_params.volume = voice_volume_;
+  RCLCPP_INFO(nh_->get_logger(), "voice name[%s], speed[%d], pitch[%d], volume[%d]",
+              tts_params.vcn, tts_params.speed, tts_params.pitch, tts_params.volume);
   while (rclcpp::ok()) {
     std::unique_lock<std::mutex> lock(mutex_);
     cv_.wait(lock,
@@ -161,7 +182,7 @@ void SpeechAgentTTSNode::ProcessMessages() {
     while (!message_queue_.empty()) {
       auto message = message_queue_.front();
       message_queue_.pop();
-      int ret = p_sa_tts_synthesize_(tts_handle_, message->data.c_str(), nullptr);
+      int ret = p_sa_tts_synthesize_(tts_handle_, message->data.c_str(), &tts_params);
       if (ret != SA_OK) {
         RCLCPP_ERROR(nh_->get_logger(), "Synthesis failed with error code:%d", ret);
       }
@@ -226,17 +247,17 @@ void SpeechAgentTTSNode::PlaybackMessages() {
           if (ret_write == -EPIPE) {
             RCLCPP_WARN(nh_->get_logger(), "play underrun recover");
             snd_pcm_prepare(speaker_device_->handle);
+            ret_write = alsa_device_write(speaker_device_, buf_8ch.data(), curr_frames);
+            if (ret_write < 0) {
+              RCLCPP_WARN(nh_->get_logger(), "alsa write retry err:%s", snd_strerror(ret_write));
+            }
           } else {
             RCLCPP_WARN(nh_->get_logger(), "alsa write err:%s", snd_strerror(ret_write));
           }
         }
-
         read_pos += curr_frames;
       }
     }
-    // 重置PCM状态，避免下次写入时因buffer已空而underrun             
-    snd_pcm_drain(speaker_device_->handle);                                                    
-    snd_pcm_prepare(speaker_device_->handle);
   }
   snd_pcm_drop(speaker_device_->handle);
 }

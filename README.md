@@ -48,7 +48,7 @@ colcon build --packages-select speech_agent_tts
 ### 2. Launch
 
 ```bash
-ros2 launch speech_agent_tts speech_agent_tts.launch.py playback_device:=plughw:0,0 topic_sub:=/tts_text
+ros2 launch speech_agent_tts speech_agent_tts.launch.py playback_device:=plughw:0,0 volume:=90 topic_sub:=/tts_text
 ```
 
 After a successful launch, the node subscribes to the `/tts_text` topic (message type: `std_msgs/msg/String`) and synthesizes the text into speech for playback.
@@ -65,6 +65,10 @@ ros2 topic pub --once /tts_text std_msgs/msg/String "{data: 'Hello, world'}"
 | --------- | ----------- | ---- | ------- |
 | topic_sub | Subscribed text topic | std::string | "/tts_text" |
 | playback_device | Audio playback device | std::string | "plughw:0,0" |
+| voice_name | TTS voice name | std::string | "x_yezi_cpu5_10" |
+| speed | TTS speech speed | int | 75 |
+| pitch | TTS speech pitch | int | 80 |
+| volume | TTS speech volume | int | 90 |
 
 ## Key Technical Details
 
