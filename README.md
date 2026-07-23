@@ -47,6 +47,13 @@ colcon build --packages-select speech_agent_tts
 
 ### 2. Launch
 
+Place resource package in `/opt/tros/humble/lib/`
+```bash
+cp -r install/speech_agent_tts/lib/speech_agent_tts/ /opt/tros/humble/lib/
+```
+
+- launch
+
 ```bash
 ros2 launch speech_agent_tts speech_agent_tts.launch.py playback_device:=plughw:0,0 volume:=90 topic_sub:=/tts_text
 ```
