@@ -32,6 +32,8 @@ As shown above, the audio card is correctly installed. Card 0 is the audio card,
 
 ### 1. Build
 
+`<TROS_DISTRO>` is the active TROS distribution — `humble` or `jazzy`. Replace it with the distro you have installed and sourced.
+
 The resource package is downloaded automatically during the build. To download it manually, run the following command to place the resource package in the project root directory before building:
 
 ```bash
@@ -41,15 +43,15 @@ wget https://archive.d-robotics.cc/TogetheROS/files/speech_solution/speech_agent
 - Build:
 
 ```bash
-source /opt/tros/humble/setup.bash
+source /opt/tros/<TROS_DISTRO>/setup.bash
 colcon build --packages-select speech_agent_tts
 ```
 
 ### 2. Launch
 
-Place resource package in `/opt/tros/humble/lib/`
+Place resource package in `/opt/tros/${TROS_DISTRO}/lib`
 ```bash
-cp -r install/speech_agent_tts/lib/speech_agent_tts/ /opt/tros/humble/lib/
+cp -r install/speech_agent_tts/lib/speech_agent_tts/ /opt/tros/${TROS_DISTRO}/lib/
 ```
 
 - launch

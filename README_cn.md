@@ -32,6 +32,8 @@ ls /dev/snd/
 
 ### 1. 编译
 
+`<TROS_DISTRO>` 为当前启用的 TROS 发行版 —— `humble` 或 `jazzy`，请替换为实际安装并 source 的发行版。
+
 编译时会自动下载资源包，如果想手动下载资源包，可以使用下面命令将资源包下载到项目根目录，再进行编译
 
 ```bash
@@ -41,15 +43,15 @@ wget https://archive.d-robotics.cc/TogetheROS/files/speech_solution/speech_agent
 - 编译
 
 ```bash
-source /opt/tros/humble/setup.bash
+source /opt/tros/<TROS_DISTRO>/setup.bash
 colcon build --packages-select speech_agent_tts
 ```
 
 ### 2. 启动
 
-将资源包放到`/opt/tros/humble/lib/`目录下
+将资源包放到`/opt/tros/${TROS_DISTRO}/lib/`目录下
 ```bash
-cp -r install/speech_agent_tts/lib/speech_agent_tts/ /opt/tros/humble/lib/
+cp -r install/speech_agent_tts/lib/speech_agent_tts/ /opt/tros/${TROS_DISTRO}/lib/
 ```
 
 - 启动
