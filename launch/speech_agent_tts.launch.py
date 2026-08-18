@@ -14,7 +14,7 @@
 # limitations under the License.
 
 from launch import LaunchDescription
-from launch.actions import ExecuteProcess, DeclareLaunchArgument
+from launch.actions import ExecuteProcess, DeclareLaunchArgument, LogInfo
 from launch.substitutions import LaunchConfiguration
 from ament_index_python.packages import get_package_share_directory
 
@@ -51,6 +51,41 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'topic_sub', default_value='/tts_text',
             description='tts text subscription topic'),
+
+        LogInfo(
+            msg=["\n",
+                 "========== speech_agent_tts.launch.py usage ==========\n",
+                 "usage:\n",
+                 "  ros2 launch speech_agent_tts speech_agent_tts.launch.py ",
+                 "[<argument_name>:=<value> ...]\n",
+                 "\n",
+                 "arguments (all optional, pass as <name>:=<value>):\n",
+                 "  playback_device  audio playback device, default: 'plughw:0,0'\n",
+                 "  voice_name       TTS voice name,        default: 'x_yezi_cpu5_10'\n",
+                 "  speed            TTS speech speed,       default: '75'\n",
+                 "  pitch            TTS speech pitch,       default: '80'\n",
+                 "  volume           TTS speech volume,      default: '90'\n",
+                 "  topic_sub        tts text subscription topic, "
+                 "default: '/tts_text'\n",
+                 "\n",
+                 "examples:\n",
+                 "  # launch with all default values\n",
+                 "  ros2 launch speech_agent_tts speech_agent_tts.launch.py\n",
+                 "  # launch with playback device and topic\n",
+                 "  ros2 launch speech_agent_tts speech_agent_tts.launch.py ",
+                 "playback_device:=plughw:0,0 topic_sub:=/tts_text\n",
+                 "  # launch with custom speed and volume\n",
+                 "  ros2 launch speech_agent_tts speech_agent_tts.launch.py ",
+                 "speed:=80 volume:=70\n",
+                 "\n",
+                 "current values:\n",
+                 "  playback_device=", playback_device, "\n",
+                 "  voice_name=", voice_name, "\n",
+                 "  speed=", speed, "\n",
+                 "  pitch=", pitch, "\n",
+                 "  volume=", volume, "\n",
+                 "  topic_sub=", topic_sub, "\n",
+                 "=======================================================\n"]),
 
         ExecuteProcess(
             cmd=['bash', '-c',
